@@ -3,12 +3,14 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 import os
 import sys
-import cv
+import cv2 as cv
 import argparse
 import termcolor
 import ast
 import copy
 
+ignore_color = (255, 255, 255) #white
+color_threshold = 10 #+- this color to be registered - might be needed due to compression alg
 
 class ImageToGcode():
     def __init__(self,
@@ -19,7 +21,7 @@ class ImageToGcode():
                  feedrate,
                  offsets,
                  verbose=False):
-        self.img = cv.LoadImageM(img)
+        self.img = cv.imread(img)
         self.output = ""
         self.outFile = os.path.splitext(os.path.abspath(img))[0] + ".gco"
         self.spread = spread
@@ -27,43 +29,48 @@ class ImageToGcode():
         self.increment = spread/nozzles
         self.printArea = area
         self.feedrate = feedrate
-        self.red = (0.0, 0.0, 255.0, 0.0)
-        self.green = (0.0, 255.0, 0.0, 0.0)
-        self.blue = (255.0, 0.0, 0.0, 0.0)
-        self.black = (0.0, 0.0, 0.0, 0.0)
+        #change colors to sauces here
+        self.red = (0, 0, 255)
+        self.orange = (0, 152, 255)
+        self.white = (255, 255, 255)
+        self.black =(0, 0, 0)
+        self.green = (0, 255, 0)
         self.offsets = offsets
         self.debug_to_terminal()
         self.make_gcode()
 
     def make_gcode(self):
-        self.output = "M106"  # Start Fan
-        nozzleFirings = [0 for x in range(0, self.img.cols)]
-        nozzleFirings = [copy.copy(nozzleFirings) for x in range(0, 4)]
-        scan = range(0, self.img.rows)
-        scan.reverse()
+        self.output = "M106\n"  # Start Fan
+        nozzleFirings = [0 for x in range(0, self.img.shape[1])]
+        nozzleFirings = [copy.copy(nozzleFirings) for x in range(0, self.nozzles)]
+        scan = range(0, self.img.shape[0])
+        scan = reversed(scan)
         for y in scan:
-            for x in range(0, self.img.cols):
-                color = cv.Get2D(self.img, y, x)
-                if color == self.red:
+            for x in range(0, self.img.shape[1]):
+                color = tuple(self.img[y, x])
+               
+                if color == ignore_color:
+                    pass
+                elif color == self.red:
                     nozzleFirings[0][x] += 1 << y % self.nozzles
-                elif color == self.green:
+                elif color == self.orange:
                     nozzleFirings[1][x] += 1 << y % self.nozzles
-                elif color == self.blue:
+                elif color == self.green:
                     nozzleFirings[2][x] += 1 << y % self.nozzles
                 elif color == self.black:
                     nozzleFirings[3][x] += 1 << y % self.nozzles
                 else:
                     pass
-            if y % 12 == 0 and y > 0:
+            if y % self.nozzles == 0 and y > 0:
                 for headNumber, headVals in enumerate(nozzleFirings):
                     for column, firingVal in enumerate(headVals):
                         if firingVal:
                             currentOffset = self.offsets[headNumber]
-                            self.output += "G1X"+str(self.increment*column-currentOffset[0])+"Y"+str(y/12*self.spread-currentOffset[1])+"F"+str(self.feedrate)+"\n"
+                            self.output += "G1 X"+str(self.increment*column-currentOffset[0])+" Y"+str(y/12*self.spread-currentOffset[1])+" F"+str(self.feedrate)+"\n"
                             self.output += "M400\n"
                             self.output += "M700 P"+str(headNumber)+" S"+str(firingVal)+"\n"
                 #print(str(nozzleFirings))
-                nozzleFirings = [0 for x in range(0, self.img.cols)]
+                nozzleFirings = [0 for x in range(0, self.img.shape[1])]
                 nozzleFirings = [copy.copy(nozzleFirings) for x in range(0, 4)]
         f = open(self.outFile, 'w')
         f.write(self.output)
@@ -71,25 +78,30 @@ class ImageToGcode():
         #print(self.output)
 
     def debug_to_terminal(self):
-        print("Rows: "+str(self.img.rows))
-        print("Cols: "+str(self.img.cols))
+        print("Rows: "+str(self.img.shape[0]))
+        print("Cols: "+str(self.img.shape[1]))
         print("Spread: "+str(self.spread)+"mm")
         print("Nozzles: "+str(self.nozzles))
         print("Print Area: "+str(self.printArea)+"mm")
         rowStr = ""
-        for y in range(0, self.img.rows):
+        for y in range(0, self.img.shape[0]):
             rowStr = ""
-            for x in range(0, self.img.cols):
-                color = cv.Get2D(self.img, y, x)
+            for x in range(0, self.img.shape[1]):
+                color = tuple(self.img[y, x])
+                #print(color)
+                #print(self.red)
                 if color == self.red:
-                    rowStr += termcolor.colored(" ", 'white', 'on_red')
-                elif color == self.green:
-                    rowStr += termcolor.colored(" ", 'white', 'on_green')
-                elif color == self.blue:
-                    rowStr += termcolor.colored(" ", 'white', 'on_blue')
+                    rowStr += termcolor.colored(" ", 'red', 'on_red')
+                if color == self.green:
+                    rowStr += termcolor.colored(" ", 'green', 'on_green')
+                elif color == self.white:
+                    rowStr += termcolor.colored(" ", 'white', 'on_white')
+                elif color == self.orange:
+                    rowStr += termcolor.colored(" ", 'yellow', 'on_yellow')
                 elif color == self.black:
                     rowStr += " "
                 else:
+                    print(color)
                     rowStr += termcolor.colored(" ", 'white', 'on_white')
             print(rowStr)
 
